@@ -2,7 +2,24 @@
 
 require 'csv'
 
-def helpscrn
+def load_database
+	begin
+		database_file = File.open("./inventory.accdb")
+		database_contents = Array.new{Array.new}
+		i = 0
+		database_file.each do |line|
+			database_contents[i] = line.split(",").map(&:strip)
+			i += 1
+		end
+
+		return database_contents
+	rescue
+		abort "Unable to continue - database file #{database_file} not found."
+	end
+end
+
+
+def help_scrn
 	# define the help variable which holds the help text
 	help = 
 	"Usage: ruby inventory.rb [?|-h|help|[-u|-o|-z <infile>|[<outfile>]]]\n
@@ -27,7 +44,8 @@ def helpscrn
 	puts help
 end
 
-def updateinv
+# UPDATE INVENTORY FUNCTION called when user puts -u <infile>
+def update_inv
 	if (ARGV[1] == nil)
 		puts "\n-u requires an <infile>"
 		puts "Usage: ruby inventory.rb [?|-h|help|[-u|-o|-z <infile>|[<outfile>]]]"
@@ -39,7 +57,7 @@ def updateinv
 			filename = "./" << ARGV[1]
 			database_file = "./inventory.accdb"
 
-			# Attempt to open user csv file. If not found, abort program.
+			# Attempt to open database file. If not found, abort program.
 			begin
 				data_file = File.open(database_file)
 			# Instead of asking for new file name, abort if file not found.
@@ -80,13 +98,95 @@ def updateinv
 	end
 end
 
+# OUTPUT INVENTORY FILE called when user puts -o|-z <outfile>
+def load_file(everything)
+	database_contents = load_database
+
+	if (everything == true)
+		if (ARGV[1] == nil)
+			database_contents.each do |a|
+				puts "==========================================="
+				puts "Barcode:       " << a[0]
+				puts "Item Name:     " << a[1]
+				puts "Item Category: " << a[2]
+				puts "Quantity:      " << a[3]
+				puts "Price:         " << a[4]
+				puts "Description:   " << a[5]
+				print "\n"
+			end
+		else
+			new_filename = ARGV[1].to_s
+			if (new_filename.end_with?(".tsv"))
+				CSV.open(new_filename, "w", {:col_sep => "\t"}) do |csv|
+					database_contents.each do |a|
+					  csv << [a[0], a[1], a[2], a[3], a[4], a[5]]
+					end
+				end
+				puts "File was successfully created!"
+			else
+				puts "File format must be .tsv!"
+			end
+		end
+	else
+		zero_content = ""
+		database_contents.each do |a|
+			if (a[3] == '0')
+				zero_content << "===========================================\n"
+				zero_content << "Barcode:       #{a[0]}\n"
+				zero_content << "Item Name:     #{a[1]}\n"
+				zero_content << "Item Category: #{a[2]}\n"
+				zero_content << "Quantity:      #{a[3]}\n"
+				zero_content << "Price:         #{a[4]}\n"
+				zero_content << "Description:   #{a[5]}\n"
+			end
+		end
+
+		if (zero_content == "")
+			puts "No database records found with zero quantity."
+		else
+			puts zero_content
+		end
+	end
+end
+
+
+# SEARCH INVENTORY FILE called when user enters "ruby inventory.rb" and gets barcode
+def search_inv(barcode,database_contents)
+
+	database_item = ""
+	database_contents.each do |a|
+		if (a[0] == barcode)
+			database_item << "Barcode #{barcode} found in the database. Details are given below.\n"
+			database_item << "   Item Name: #{a[1]}\n"
+			database_item << "   Item Category: #{a[2]}\n"
+			database_item << "   Quantity: #{a[3]}\n"
+			database_item << "   Price: #{a[4]}\n"
+			database_item << "   Description: #{a[5]}\n"
+			database_item << "\n"
+		end
+	end
+
+	if (database_item == "")
+		puts "No database records found with barcode number #{barcode}."
+	else
+		puts database_item
+	end
+end
+
+
 
 if (ARGV[0] == '?' || ARGV[0] == '-h' || ARGV[0] == 'help')
-	helpscrn
+	help_scrn
 elsif (ARGV[0] == '-u')
-	updateinv
+	update_inv
 elsif (ARGV[0] == '-z' || ARGV[0] == '-o')
-	output
+	if (ARGV[0] == '-z')
+		load_file(false)
+	else
+		load_file(true)
+	end
 else
-	puts "\nUsage: ruby inventory.rb [?|-h|help|[-u|-o|-z <infile>|[<outfile>]]]"
+	dbcontents = load_database
+	input = gets.strip
+	search_inv(input,dbcontents)
 end
