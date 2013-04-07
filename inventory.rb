@@ -1,21 +1,104 @@
 #!/usr/bin/env ruby
 
 require 'csv'
+require 'win32ole' #require library for ActiveX Data Objects (ADO)
 
-def load_database
-	begin
-		database_file = File.open("./inventory.accdb")
-		database_contents = Array.new{Array.new}
-		i = 0
-		database_file.each do |line|
-			database_contents[i] = line.split(",").map(&:strip)
-			i += 1
-		end
+# Define and set global variable for database file
+$database_file_path = "D:inventory.accdb"
 
-		return database_contents
-	rescue
-		abort "Unable to continue - database file #{database_file} not found."
+# CREATE CLASS AccessDb for database connection handling
+class AccessDb
+	# Set variables as accessors, so that they have read/writability
+	attr_accessor :mdb, :connection, :data, :fields
+	
+	# Constructor for class AccessDb
+	def initialize (mdb = nil)
+		@mdb = mdb
+		@connection = nil
+		@data = nil
+		@fields = nil
 	end
+	
+	# Open the connection to Database
+	def open
+		connection_string = 'Provider=Microsoft.Jet.OLEDB.4.0;Data Source='
+		connection_string << @mdb
+		@connection = WIN32OLE.new('ADODB.Connection')
+		@connection.Open(connection_string)
+	end
+	
+	# Method for querying the Database
+	def query(sql)
+		recordset = WIN32OLE.new('ADODB.Recordset')
+		recordset.Open(sql, @connection)
+		@fields = []
+		recordset.Fields.each do |field|
+			@fields << field.Name
+		end
+		
+		begin
+			# Transpose to have array of rows
+			@data = recordset.GetRows.transpose
+		rescue
+			@data = []
+		end
+		
+		recordset.Close
+	end
+	
+	# Method for executing a sql command
+	def execute(sql)
+		@connection.Execute(sql)
+	end
+	
+	# Destructor method for AccessDb Class
+	def close
+		@connection.Close
+	end
+end
+
+
+# LOAD DATABASE FUNCTION loads the database into variable connection
+def load_database
+	user_input = ""
+	
+	# Check if database file is located in cwd
+	until (user_input == "Y" || user_input == "N")
+		print "Is the database file in the current working directory and named 'inventory.accdb'? [Y/N]: "
+		user_input = gets.strip.upcase
+	end
+	
+	# If database file is located elsewhere get file path from user
+	unless (user_input == "Y")
+		puts "Please specify the pathname where the database file is located, including file name."
+		puts "(e.g. C:tempdir\inventory.accdb or D:\Documents\Barcode Scanner\inventory.mdb):"
+		$database_file_path = gets.strip
+	end
+	
+	begin
+		db = AccessDb.new($database_file_path)
+		db.open
+	rescue
+		abort "Unable to continue - database file #{$database_file_path} not found."
+	end
+	
+	return db
+	
+	# ***************************Let Database be csv file*************************** # 
+	# begin
+		# database_file = File.open("./inventory.accdb")
+		# database_contents = Array.new{Array.new}
+		# i = 0
+		# database_file.each do |line|
+			# database_contents[i] = line.split(",").map(&:strip)
+			# i += 1
+		# end
+
+		# return database_contents
+	# rescue
+		# abort "Unable to continue - database file #{database_file} not found."
+	# end
+	# ***************************Let Database be csv file*************************** # 
 end
 
 
@@ -55,24 +138,7 @@ def update_inv
 			puts "Usage: ruby inventory.rb [?|-h|help|[-u|-o|-z <infile>|[<outfile>]]]"
 		else
 			filename = "./" << ARGV[1]
-			database_file = "./inventory.accdb"
-
-			# Attempt to open database file. If not found, abort program.
-			begin
-				data_file = File.open(database_file)
-			# Instead of asking for new file name, abort if file not found.
-			rescue
-				abort "Database file not found - aborting."
-			end
-
-			csv_input = Array.new{Array.new}
-
-			i = 0
-			data_file.each do |line|
-				csv_input[i] = line.split(",").map(&:strip)
-				i += 1
-			end
-
+			database_contents = load_database
 
 			# Attempt to open user csv file. If not found, abort program.
 			begin
@@ -82,12 +148,13 @@ def update_inv
 				abort "Input file #{ARGV[1]} not found - aborting."
 			end
 			
+
 			CSV.foreach(filename) do |row|
-				csv_input << row
+				database_contents << row
 			end
 
-			CSV.open(database_file, "w") do |csv|
-				csv_input.each do |a|
+			CSV.open($database_file_path, "w") do |csv|
+				database_contents.each do |a|
 					csv << [a[0], a[1], a[2], a[3], a[4], a[5]]
 				end
 			end
@@ -149,6 +216,10 @@ def load_file(everything)
 	end
 end
 
+def new_db_entry
+	puts "YOu are here"
+end
+
 
 # SEARCH INVENTORY FILE called when user enters "ruby inventory.rb" and gets barcode
 def search_inv(barcode,database_contents)
@@ -167,7 +238,17 @@ def search_inv(barcode,database_contents)
 	end
 
 	if (database_item == "")
-		puts "No database records found with barcode number #{barcode}."
+		user_input = ""
+
+		until (user_input == "Y" || user_input == "N")
+			print "Barcode #{barcode} NOT found in the database. Do you want to enter information? [Y/N]: "
+			user_input = gets.strip.upcase
+		end
+
+		if (user_input == "Y")
+			new_db_entry
+		end
+
 	else
 		puts database_item
 	end
@@ -187,6 +268,7 @@ elsif (ARGV[0] == '-z' || ARGV[0] == '-o')
 	end
 else
 	dbcontents = load_database
+	print "Barcode number: "
 	input = gets.strip
 	search_inv(input,dbcontents)
 end
